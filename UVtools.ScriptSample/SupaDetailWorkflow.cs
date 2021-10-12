@@ -37,40 +37,52 @@ namespace UVtools.ScriptSample
         public bool ScriptExecute()
         {
             List<Operation> operations = new();
+            
+            var lightDetailTag = "detail light";
+            var lightDetailWithAATag = "detail light aa";
+            var flatDetailTag = "flat detail";
+            var flatDetailWithAATag = "flat detail aa";            
+            var flatTag = "flat";
+            var flatWithAATag = "flat aa";
 
-            var dilatedDetailCutter = CreateCutter("detail", 3);
-            var dilatedFlatDetailCutter = CreateCutter("flat detail", 3);
-            var dilatedFlatCutter = CreateCutter("flat", 1);
-            var contrastedDetailAA = CreateContrasted("detail aa", "detail", dilatedFlatCutter, dilatedFlatDetailCutter);
-            var contrastedFlatDetailAA = CreateContrasted("flat detail aa", "flat detail", dilatedFlatCutter, dilatedDetailCutter);
-            var contrastedFlatAA = CreateContrasted("flat aa", "flat", dilatedFlatDetailCutter, dilatedDetailCutter);
+            var supportsTag = "supports";
+            var sharpDetailTag = "sharp detail";
+            var voidsTag = "voids";
+
+            var supaDetailTag = "supadetail";
+            var supaDetailSupportedTag = "supadetail_supported";
+
+            var dilatedSharpDetailCutter = CreateCutter(sharpDetailTag, 3);
+            var dilatedFlatDetailCutter = CreateCutter(flatDetailTag, 3);
+            var dilatedLightDetailCutter = CreateCutter(lightDetailTag, 3);
+            var dilatedFlatCutter = CreateCutter(flatTag, 2);
+            var contrastedLightDetailAA = CreateContrasted(lightDetailWithAATag, lightDetailTag, dilatedFlatCutter, dilatedFlatDetailCutter, dilatedSharpDetailCutter);
+            var contrastedFlatDetailAA = CreateContrasted(flatDetailWithAATag, flatDetailTag, dilatedFlatCutter, dilatedLightDetailCutter, dilatedSharpDetailCutter);
+            var contrastedFlatAA = CreateContrasted(flatWithAATag, flatTag, dilatedFlatDetailCutter, dilatedLightDetailCutter, dilatedSharpDetailCutter);
 
             operations = new();
 
-            if (SlicerFile.FileFullPath != CompositionFileName(contrastedFlatAA))
+            OperationLayerImport importFlatAAElement = new(SlicerFile)
             {
-                OperationLayerImport importFlatAAElement = new(SlicerFile)
-                {
-                    ImportType = ImportTypes.Replace
-                };
-                importFlatAAElement.AddFile(CompositionFileName(contrastedFlatAA));
-                operations.Add(importFlatAAElement);
-            }
+                ImportType = ImportTypes.Replace
+            };
+            importFlatAAElement.AddFile(CompositionFileName(contrastedFlatAA));
+            operations.Add(importFlatAAElement);
 
             OperationLayerImport importDetailAAElements = new(SlicerFile)
             {
                 ImportType = ImportTypes.MergeMax
             };
-            importDetailAAElements.AddFile(CompositionFileName(contrastedDetailAA));
+            importDetailAAElements.AddFile(CompositionFileName(contrastedLightDetailAA));
             importDetailAAElements.AddFile(CompositionFileName(contrastedFlatDetailAA));
             operations.Add(importDetailAAElements);
 
             OperationPixelArithmetic corrode = new(SlicerFile)
             {
-                Operator = OperationPixelArithmetic.PixelArithmeticOperators.Corrode,
+                Operator = PixelArithmeticOperators.Corrode,
                 ApplyMethod = PixelArithmeticApplyMethod.All,
                 NoiseThreshold = 0,
-                NoiseMinOffset = -128,
+                NoiseMinOffset = -160,
                 NoiseMaxOffset = 128
             };
             operations.Add(corrode);
@@ -80,21 +92,22 @@ namespace UVtools.ScriptSample
             {
                 ImportType = ImportTypes.MergeMax
             };
-            restoreCores.AddFile(CompositionFileName("flat"));
-            restoreCores.AddFile(CompositionFileName("detail"));
-            restoreCores.AddFile(CompositionFileName("flat detail"));
+            restoreCores.AddFile(CompositionFileName(flatTag));
+            restoreCores.AddFile(CompositionFileName(sharpDetailTag));
+            restoreCores.AddFile(CompositionFileName(flatDetailTag));
+            restoreCores.AddFile(CompositionFileName(lightDetailTag));
             operations.Add(restoreCores);
 
             OperationLayerImport subtractVoidElement = new(SlicerFile)
             {
                 ImportType = ImportTypes.Subtract
             };
-            subtractVoidElement.AddFile(CompositionFileName("voids"));
+            subtractVoidElement.AddFile(CompositionFileName(voidsTag));
             operations.Add(subtractVoidElement);
 
             RoundupOperations(operations);
 
-            SlicerFile.SaveAs(CompositionFileName("supadetail"), Progress);
+            SlicerFile.SaveAs(CompositionFileName(supaDetailTag), Progress);
 
             operations = new();
 
@@ -102,7 +115,7 @@ namespace UVtools.ScriptSample
             {
                 ImportType = ImportTypes.MergeMax
             };
-            importSupports.AddFile(CompositionFileName("supports"));
+            importSupports.AddFile(CompositionFileName(supportsTag));
             operations.Add(importSupports);
 
             OperationRepairLayers removeEmpty = new(SlicerFile)
@@ -116,7 +129,7 @@ namespace UVtools.ScriptSample
 
             RoundupOperations(operations);
 
-            SlicerFile.SaveAs(CompositionFileName("supadetail_supported"), Progress);
+            SlicerFile.SaveAs(CompositionFileName(supaDetailSupportedTag), Progress);
 
             return !Progress.Token.IsCancellationRequested;
         }
