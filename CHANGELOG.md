@@ -1,5 +1,36 @@
 # Changelog
 
+## 07/10/2021 - v2.23.5
+
+- (Fix) Odd crash when detecing for resin trap issues which was duplicating contours
+
+## 04/10/2021 - v2.23.4
+
+- (Fix) RGB images was preventing file open/save/convertion
+
+## 04/10/2021 - v2.23.3
+
+- **Pixel arithmetic**
+   - (Add) Apply to - Model surface: Apply only to model surface/visible pixels
+   - (Add) Apply to - Model surface & inset: Apply only to model surface/visible pixels and within a inset from walls
+   - (Add) Preset: Fuzy skin
+   - (Improvement) Speed up the Corrode method
+   - (Change) Heal anti-aliasing threshold from 169 to 119
+- **Calibration - Grayscale:**
+   - (Add) Enable or disable text
+   - (Fix) Calibration - Grayscale: Crash program when redo (Ctrl+Z)
+   - (Change) Some defaults to better values
+- (Fix) Layer arithmetic: Crash program when redo (Ctrl+Z)
+
+## 02/10/2021 - v2.23.2
+
+- **Pixel arithmetic**
+   - (Add) Corrode: Random dithering, use for eliminating visual prominence of layer lines. Can also be used to add a microtexture to enhance paint bonding (#307)
+   - (Add) Ignore areas smaller or larger than an threshold
+   - (Add) Preset - Heal anti-aliasing: Discard uncured faded pixels and turn them into solid black (0)
+- (Fix) Resin traps: Discard traps with drain holes directly on first layer / build plate
+- (Fix) The setting 'Auto flip layer on file load' is not respected when off
+
 ## 23/09/2021 - v2.23.1
 
 - **Issues:**
