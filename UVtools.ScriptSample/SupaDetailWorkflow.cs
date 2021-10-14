@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UVtools.Core;
-using UVtools.Core.FileFormats;
 using UVtools.Core.Operations;
 using UVtools.Core.Scripting;
 using static UVtools.Core.Operations.OperationLayerImport;
@@ -101,7 +100,7 @@ namespace UVtools.ScriptSample
             Script.Name = "Automate SupaDetail! workflow";
             Script.Description = "A workflow automation to combine selective AA, countersunk voids, surface corrosion, etc";
             Script.Author = "Finn Neuik";
-            Script.Version = new Version(0, 1);
+            Script.Version = new Version(1, 0);
             Script.UserInputs.AddRange(new ScriptBaseInput[] {
                 NoiseMinimumOffset,
                 NoiseMaximumOffset,
@@ -262,7 +261,8 @@ namespace UVtools.ScriptSample
             Progress.Title = "Final processing - supports and thresholding";
             RoundupOperations(operations);
 
-            SlicerFile.SaveAs(CompositionFileName(supaDetailSupportedTag + DateTime.UtcNow.ToString("_yyMMdd_HHmm")), Progress);
+            var outputTag = String.Join('_', supaDetailSupportedTag, SlicerFile.LayerHeight, SlicerFile.ExposureRepresentation, DateTime.UtcNow.ToString("yyMMdd_HHmm"));
+            SlicerFile.SaveAs(CompositionFileName(outputTag), Progress);
 
             return !Progress.Token.IsCancellationRequested;
         }
