@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UVtools.Core;
+using UVtools.Core.FileFormats;
 using UVtools.Core.Operations;
 using UVtools.Core.Scripting;
 using static UVtools.Core.Operations.OperationLayerImport;
@@ -69,14 +70,24 @@ namespace UVtools.ScriptSample
             Value = true
         };
 
-        ScriptNumericalInput<byte> BinaryThreshold = new()
+        ScriptNumericalInput<byte> ToZeroThreshold = new()
         {
-            Label = "Binary Threshold", //todo: replace with quantisation perhaps
-            ToolTip = "Binary threshold to apply to final slices",
+            Label = "Zero threshold", //todo: replace with quantisation perhaps
+            ToolTip = "Zero threshold to apply to final slices",
             Minimum = byte.MinValue,
             Maximum = byte.MaxValue,
             Increment = 1,
             Value = 119
+        };
+
+        ScriptNumericalInput<uint> CorrosionBite = new()
+        {
+            Label = "Corrosion bite", //todo: replace with quantisation perhaps
+            ToolTip = "Number of pixels from surface to corrode - should be able to use wall here!",
+            Minimum = byte.MinValue,
+            Maximum = 4,
+            Increment = 1,
+            Value = 2
         };
 
         private ScriptCheckBoxInput RemoveEmptyLayersAtEnd = new()
@@ -96,7 +107,7 @@ namespace UVtools.ScriptSample
                 NoiseMaximumOffset,
                 PixelsOfAAToRemove,
                 ApplyThreshold,
-                BinaryThreshold,
+                ToZeroThreshold,
             });
         }
 
@@ -187,7 +198,6 @@ namespace UVtools.ScriptSample
                 ImportType = ImportTypes.MergeMax
             };
             restoreCores.AddFile(CompositionFileName(baseModelRestorer));
-            restoreCores.AddFile(CompositionFileName(sharpDetailTag));
             restoreCores.AddFile(CompositionFileName(softDetailTag));
             restoreCores.AddFile(CompositionFileName(semisharpDetailTag));
             operations.Add(restoreCores);
@@ -199,6 +209,14 @@ namespace UVtools.ScriptSample
             };
             subtractVoidElement.AddFile(CompositionFileName(voidsTag));
             operations.Add(subtractVoidElement);
+
+            //reinstate sharp detail
+            OperationLayerImport restoreSharp = new(SlicerFile)
+            {
+                ImportType = ImportTypes.MergeMax
+            };
+            restoreSharp.AddFile(CompositionFileName(sharpDetailTag));
+            operations.Add(restoreSharp);
 
             Progress.Title = "Composing elements";
             RoundupOperations(operations);
@@ -220,11 +238,11 @@ namespace UVtools.ScriptSample
                 OperationPixelArithmetic threshold = new(SlicerFile)
                 {
                     Operator = PixelArithmeticOperators.Threshold,
-                    ApplyMethod = PixelArithmeticApplyMethod.All,
+                    ApplyMethod = PixelArithmeticApplyMethod.Model,
                     UsePattern = false,
-                    Value = BinaryThreshold.Value,
+                    Value = ToZeroThreshold.Value,
                     ThresholdMaxValue = 255,
-                    ThresholdType = ThresholdType.Binary
+                    ThresholdType = ThresholdType.ToZero
                 };
                 operations.Add(threshold);
             }
@@ -244,7 +262,7 @@ namespace UVtools.ScriptSample
             Progress.Title = "Final processing - supports and thresholding";
             RoundupOperations(operations);
 
-            SlicerFile.SaveAs(CompositionFileName(supaDetailSupportedTag), Progress);
+            SlicerFile.SaveAs(CompositionFileName(supaDetailSupportedTag + DateTime.UtcNow.ToString("_yyMMdd_HHmm")), Progress);
 
             return !Progress.Token.IsCancellationRequested;
         }
@@ -295,8 +313,8 @@ namespace UVtools.ScriptSample
             intersectBaseElement.AddFile(CompositionFileName(baseFileTag));
             operations.Add(intersectBaseElement);
 
-            // remove 1 pixel from base model so corrosion bites into surface
-            uint biteOfCorrosionIntoModel = 1; // pixels, should be able to achieve this with wall settings
+            // remove skin from base model so when used for restoration corrosion bites into surface
+            uint biteOfCorrosionIntoModel = CorrosionBite.Value; // pixels, should be able to achieve this with wall settings
             OperationMorph erodeBaseElement = new(SlicerFile)
             {
                 MorphOperation = OperationMorph.MorphOperations.Erode,
