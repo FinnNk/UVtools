@@ -80,7 +80,7 @@ namespace UVtools.ScriptSample
             Minimum = -1000,
             Maximum = 1000,
             Increment = 1,
-            Value = -65
+            Value = -55
         };
 
         ScriptNumericalInput<short> ThirdPassNoiseMaximumOffset = new()
@@ -90,17 +90,37 @@ namespace UVtools.ScriptSample
             Minimum = -1000,
             Maximum = 1000,
             Increment = 1,
-            Value = 40
+            Value = 20
         };
 
-        ScriptNumericalInput<byte> FeatureDepth = new()
+        ScriptNumericalInput<byte> BaseFeatureDepth = new()
         {
-            Label = "Feature depth", //todo: replace with quantisation perhaps
+            Label = "Base feature depth", //todo: replace with quantisation perhaps
             ToolTip = "Number of iterations to seek features ~= pixel thickness",
             Minimum = 0,
             Maximum = 100,
             Increment = 1,
             Value = 6
+        };
+
+        ScriptNumericalInput<byte> SoftFeatureDepth = new()
+        {
+            Label = "Soft feature depth", //todo: replace with quantisation perhaps
+            ToolTip = "Number of iterations to seek features ~= pixel thickness",
+            Minimum = 0,
+            Maximum = 100,
+            Increment = 1,
+            Value = 2
+        };
+
+        ScriptNumericalInput<byte> SemisharpFeatureDepth = new()
+        {
+            Label = "Semisharp feature depth", //todo: replace with quantisation perhaps
+            ToolTip = "Number of iterations to seek features ~= pixel thickness",
+            Minimum = 0,
+            Maximum = 100,
+            Increment = 1,
+            Value = 2
         };
 
         ScriptNumericalInput<byte> PixelsOfAAToRemove = new()
@@ -218,7 +238,9 @@ namespace UVtools.ScriptSample
                 SecondPassNoiseMaximumOffset,
                 ThirdPassNoiseMinimumOffset,
                 ThirdPassNoiseMaximumOffset,
-                FeatureDepth,
+                BaseFeatureDepth,
+                SoftFeatureDepth,
+                SemisharpFeatureDepth,
                 PixelsOfAAToRemove,
                 SkinDepth,
                 SubsurfaceDepth,
@@ -260,9 +282,9 @@ namespace UVtools.ScriptSample
             //todo: very inefficient, look to load in matrices and only save when intermediate results are useful
 
             Progress.Title = "Creating diffused elements";
-            var diffusedBase = CreateDiffuse(baseTag, SkinDepth.Value, BaseBrightnessFalloff.Value, SkinBrightness.Value, SubsurfaceDepth.Value, CorrosionDepth.Value);
-            var diffusedSoft = CreateDiffuse(softDetailTag, SkinDepth.Value, SoftDetailBrightnessFalloff.Value, SkinBrightness.Value, SubsurfaceDepth.Value, CorrosionDepth.Value);
-            var diffusedSemisharp = CreateDiffuse(semisharpDetailTag, SkinDepth.Value, SemisharpDetailBrightnessFalloff.Value, SkinBrightness.Value, SubsurfaceDepth.Value, 0);
+            var diffusedBase = CreateDiffuse(baseTag, SkinDepth.Value, BaseBrightnessFalloff.Value, SkinBrightness.Value, SubsurfaceDepth.Value, CorrosionDepth.Value, BaseFeatureDepth.Value);
+            var diffusedSoft = CreateDiffuse(softDetailTag, SkinDepth.Value, SoftDetailBrightnessFalloff.Value, SkinBrightness.Value, SubsurfaceDepth.Value, CorrosionDepth.Value, SoftFeatureDepth.Value);
+            var diffusedSemisharp = CreateDiffuse(semisharpDetailTag, SkinDepth.Value, SemisharpDetailBrightnessFalloff.Value, SkinBrightness.Value, SubsurfaceDepth.Value, 0, SemisharpFeatureDepth.Value);
 
             Progress.Title = "Creating cutters";
             var dilatedSharpDetailCutter = CreateCutter(sharpDetailTag, PixelsOfAAToRemove.Value);
@@ -352,13 +374,13 @@ namespace UVtools.ScriptSample
             RoundupOperations(operations);
 
             //var supportedOutputTag = String.Join('_', supaDetailSupportedTag, SlicerFile.LayerHeight, /* SlicerFile.ExposureRepresentation, */DateTime.UtcNow.ToString("yyMMdd_HHmm"));
-            SlicerFile.SaveAs(CompositionFileName(supaDetailSupportedTag), Progress);
+            SlicerFile.SaveAs(CompositionFileName(supaDetailSupportedTag + "_" + DateTime.UtcNow.ToString("yyMMddHHmm")), Progress);
 
             return !Progress.Token.IsCancellationRequested;
 
         }
 
-        private string CreateDiffuse(string elementTag, uint modelSkinDepth, byte brightnessFalloff, byte skinBrightness, uint subsurfaceDepth, uint corrosionDepth) {
+        private string CreateDiffuse(string elementTag, uint modelSkinDepth, byte brightnessFalloff, byte skinBrightness, uint subsurfaceDepth, uint corrosionDepth, uint featureDepth) {
             List<Operation> operations = new();
 
             // prepare base element
@@ -370,7 +392,6 @@ namespace UVtools.ScriptSample
             importBaseElement.AddFile(CompositionFileName(elementTag));
             operations.Add(importBaseElement);
 
-            uint featureDepth = FeatureDepth.Value; // pixels, should be able to achieve this with wall settings
             OperationMorph isolateFeatures = new(SlicerFile)
             {
                 MorphOperation = OperationMorph.MorphOperations.IsolateFeatures,
