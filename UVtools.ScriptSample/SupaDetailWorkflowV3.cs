@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UVtools.Core;
-using UVtools.Core.FileFormats;
 using UVtools.Core.Operations;
 using UVtools.Core.Scripting;
 using static UVtools.Core.Operations.OperationLayerImport;
@@ -12,7 +11,7 @@ using static UVtools.Core.Operations.OperationPixelArithmetic;
 
 namespace UVtools.ScriptSample
 {
-    public class SupaDetailWorkflowV2 : ScriptGlobals
+    public class SupaDetailWorkflowV3 : ScriptGlobals
     {
         // base object - assumed to have overall heavy aa or blur
         private const string baseTag = "base"; // 3px blur?
@@ -53,7 +52,7 @@ namespace UVtools.ScriptSample
             Minimum = -1000,
             Maximum = 1000,
             Increment = 1,
-            Value = 20
+            Value = 30
         };
 
         ScriptNumericalInput<short> SecondPassNoiseMinimumOffset = new()
@@ -73,7 +72,7 @@ namespace UVtools.ScriptSample
             Minimum = -1000,
             Maximum = 1000,
             Increment = 1,
-            Value = 20
+            Value = 30
         };
 
         ScriptNumericalInput<short> ThirdPassNoiseMinimumOffset = new()
@@ -83,7 +82,7 @@ namespace UVtools.ScriptSample
             Minimum = -1000,
             Maximum = 1000,
             Increment = 1,
-            Value = -55
+            Value = -35
         };
 
         ScriptNumericalInput<short> ThirdPassNoiseMaximumOffset = new()
@@ -103,7 +102,7 @@ namespace UVtools.ScriptSample
             Minimum = 0,
             Maximum = 100,
             Increment = 1,
-            Value = 6
+            Value = 12
         };
 
         ScriptNumericalInput<byte> SoftFeatureDepth = new()
@@ -113,7 +112,7 @@ namespace UVtools.ScriptSample
             Minimum = 0,
             Maximum = 100,
             Increment = 1,
-            Value = 2
+            Value = 6
         };
 
         ScriptNumericalInput<byte> SemisharpFeatureDepth = new()
@@ -123,7 +122,7 @@ namespace UVtools.ScriptSample
             Minimum = 0,
             Maximum = 100,
             Increment = 1,
-            Value = 2
+            Value = 4
         };
 
         ScriptNumericalInput<byte> PixelsOfAAToRemove = new()
@@ -133,7 +132,7 @@ namespace UVtools.ScriptSample
             Minimum = 1,
             Maximum = 4,
             Increment = 1,
-            Value = 3
+            Value = 2
         };
 
         ScriptNumericalInput<byte> SkinDepth = new()
@@ -150,7 +149,7 @@ namespace UVtools.ScriptSample
         {
             Label = "Pixels depth of subsurface", 
             ToolTip = "Depth of noise added inside original model - keep depth low, corrode this moderately to strongly",
-            Minimum = 1,
+            Minimum = 0,
             Maximum = 4,
             Increment = 1,
             Value = 1
@@ -160,16 +159,22 @@ namespace UVtools.ScriptSample
         {
             Label = "Pixels depth of corrosion",
             ToolTip = "Depth of weaker noise added inside original model - keep depth moderate, corrode this mildly to moderately",
-            Minimum = 1,
+            Minimum = 0,
             Maximum = 4,
             Increment = 1,
-            Value = 2
+            Value = 1
         };
 
         private ScriptCheckBoxInput ApplyThreshold = new()
         {
             Label = "Apply threshold",
             Value = false
+        };
+
+        private ScriptCheckBoxInput ApplyCorrosion = new()
+        {
+            Label = "Apply corrosion",
+            Value = true
         };
 
         ScriptNumericalInput<byte> ToZeroThreshold = new()
@@ -212,20 +217,40 @@ namespace UVtools.ScriptSample
             Value = 20
         };
 
-        ScriptNumericalInput<byte> ModelSkinBrightnessFalloff = new()
+        ScriptNumericalInput<byte> BaseModelSkinBrightnessFalloff = new()
         {
             Label = "Skin brightnesss falloff", //todo: replace with quantisation perhaps
             ToolTip = "Initial brightness to set the skin to - allows added surface to be taregtted more aggressively than pixels that were part of the model originally",
             Minimum = byte.MinValue,
             Maximum = byte.MaxValue,
             Increment = 1,
-            Value = 20
+            Value = 45
+        };
+
+        ScriptNumericalInput<byte> SoftModelSkinBrightnessFalloff = new()
+        {
+            Label = "Skin brightnesss falloff", //todo: replace with quantisation perhaps
+            ToolTip = "Initial brightness to set the skin to - allows added surface to be taregtted more aggressively than pixels that were part of the model originally",
+            Minimum = byte.MinValue,
+            Maximum = byte.MaxValue,
+            Increment = 1,
+            Value = 45
+        };
+
+        ScriptNumericalInput<byte> SemisharpModelSkinBrightnessFalloff = new()
+        {
+            Label = "Skin brightnesss falloff", //todo: replace with quantisation perhaps
+            ToolTip = "Initial brightness to set the skin to - allows added surface to be taregtted more aggressively than pixels that were part of the model originally",
+            Minimum = byte.MinValue,
+            Maximum = byte.MaxValue,
+            Increment = 1,
+            Value = 60
         };
 
         private ScriptCheckBoxInput RemoveEmptyLayersAtEnd = new()
         {
             Label = "Remove empty layers at end",
-            Value = true
+            Value = false
         };
 
         public void ScriptInit()
@@ -248,12 +273,16 @@ namespace UVtools.ScriptSample
                 SkinDepth,
                 SubsurfaceDepth,
                 CorrosionDepth,
-                ModelSkinBrightnessFalloff,
+                BaseModelSkinBrightnessFalloff,
+                SoftModelSkinBrightnessFalloff,
+                SemisharpModelSkinBrightnessFalloff,
                 ApplyThreshold,
                 ToZeroThreshold,
                 BaseBrightnessFalloff,
                 SoftDetailBrightnessFalloff,
-                SemisharpDetailBrightnessFalloff
+                SemisharpDetailBrightnessFalloff,
+                ApplyCorrosion,
+                RemoveEmptyLayersAtEnd
             });
         }
 
@@ -285,17 +314,18 @@ namespace UVtools.ScriptSample
             //todo: very inefficient, look to load in matrices and only save when intermediate results are useful
 
             // load mats
+            //Script.UserInputs.Select(ui => ui.Label +":" + ((dynamic)ui).Value);
 
-            var originaLayers = _originalFiles.ToDictionary(f => f, f=> {
-                var ff = FileFormat.FindByExtensionOrFilePath(CompositionFileName(f));
-                ff.Decode(CompositionFileName(f));
-                return ff.Select(l => l.LayerMat);
-            });
+            //var originaLayers = _originalFiles.ToDictionary(f => f, f=> {
+            //    var ff = FileFormat.FindByExtensionOrFilePath(CompositionFileName(f));
+            //    ff.Decode(CompositionFileName(f));
+            //    return ff.Select(l => l.LayerMat);
+            //});
 
             Progress.Title = "Creating diffused elements";
-            var diffusedBase = CreateDiffuse(baseTag, SkinDepth.Value, BaseBrightnessFalloff.Value, ModelSkinBrightnessFalloff.Value, SubsurfaceDepth.Value, CorrosionDepth.Value, BaseFeatureDepth.Value);
-            var diffusedSoft = CreateDiffuse(softDetailTag, SkinDepth.Value, SoftDetailBrightnessFalloff.Value, ModelSkinBrightnessFalloff.Value, SubsurfaceDepth.Value, CorrosionDepth.Value, SoftFeatureDepth.Value);
-            var diffusedSemisharp = CreateDiffuse(semisharpDetailTag, SkinDepth.Value, SemisharpDetailBrightnessFalloff.Value, ModelSkinBrightnessFalloff.Value, SubsurfaceDepth.Value, 0, SemisharpFeatureDepth.Value);
+            var diffusedBase = CreateDiffuse(baseTag, SkinDepth.Value, BaseBrightnessFalloff.Value, BaseModelSkinBrightnessFalloff.Value, SubsurfaceDepth.Value, CorrosionDepth.Value, BaseFeatureDepth.Value);
+            var diffusedSoft = CreateDiffuse(softDetailTag, SkinDepth.Value, SoftDetailBrightnessFalloff.Value, SoftModelSkinBrightnessFalloff.Value, SubsurfaceDepth.Value, CorrosionDepth.Value, SoftFeatureDepth.Value);
+            var diffusedSemisharp = CreateDiffuse(semisharpDetailTag, 1, SemisharpDetailBrightnessFalloff.Value, SemisharpModelSkinBrightnessFalloff.Value, SubsurfaceDepth.Value, 0, SemisharpFeatureDepth.Value);
 
             Progress.Title = "Creating cutters";
             var dilatedSharpDetailCutter = CreateCutter(sharpDetailTag, PixelsOfAAToRemove.Value);
@@ -314,12 +344,7 @@ namespace UVtools.ScriptSample
             Progress.Title = "Composing model elements";
             List<Operation> operations = new();
 
-            OperationLayerImport importBaseElement = new(SlicerFile)
-            {
-                ImportType = ImportTypes.Replace,
-            };
-            importBaseElement.AddFile(CompositionFileName(contrastedBaseAA));
-            operations.Add(importBaseElement);
+            ReplaceActiveFile(operations, contrastedBaseAA);
 
             OperationLayerImport restoreCores = new(SlicerFile)
             {
@@ -344,16 +369,9 @@ namespace UVtools.ScriptSample
             restoreCores.AddFile(CompositionFileName(sharpDetailTag));
             operations.Add(restoreRaw);
 
-            RoundupOperations(operations);
+            RoundupOperations(operations, supaDetailTag);
 
-            SlicerFile.SaveAs(CompositionFileName(supaDetailTag), Progress);
-
-            OperationLayerImport restoreSupports = new(SlicerFile)
-            {
-                ImportType = ImportTypes.MergeMax
-            };
-            restoreSupports.AddFile(CompositionFileName(supportsTag));
-            operations.Add(restoreSupports);
+            MergeLayersFromFiles(operations, supportsTag);
 
             // apply thresholding
             if (ApplyThreshold.Value)
@@ -382,164 +400,159 @@ namespace UVtools.ScriptSample
                 operations.Add(removeEmpty);
             }
             
-            RoundupOperations(operations);
-
-            //var supportedOutputTag = String.Join('_', supaDetailSupportedTag, SlicerFile.LayerHeight, /* SlicerFile.ExposureRepresentation, */DateTime.UtcNow.ToString("yyMMdd_HHmm"));
-            SlicerFile.SaveAs(CompositionFileName(supaDetailSupportedTag + "_" + DateTime.UtcNow.ToString("yyMMddHHmm")), Progress);
+            RoundupOperations(operations, supaDetailSupportedTag + "_" + DateTime.UtcNow.ToString("yyMMddHHmm"));
 
             return !Progress.Token.IsCancellationRequested;
-
         }
 
-        private string CreateDiffuse(string elementTag, uint modelSkinDepth, byte brightnessFalloff, byte skinBrightness, uint subsurfaceDepth, uint corrosionDepth, uint featureDepth) {
+        private string CreateDiffuse(string elementTag, uint modelSkinDepth, byte brightnessFalloff, byte skinBrightnessFalloff, uint subsurfaceDepth, uint corrosionDepth, uint featureDepth)
+        {
             List<Operation> operations = new();
 
             // prepare base element
             Progress.Title = "Creating diffuse " + elementTag;
-            OperationLayerImport importBaseElement = new(SlicerFile)
-            {
-                ImportType = ImportTypes.Replace
-            };
-            importBaseElement.AddFile(CompositionFileName(elementTag));
-            operations.Add(importBaseElement);
+            ReplaceActiveFile(operations, elementTag);
 
-            OperationMorph isolateFeatures = new(SlicerFile)
+            operations.Add(new OperationMorph(SlicerFile)
             {
                 MorphOperation = OperationMorph.MorphOperations.IsolateFeatures,
                 Iterations = featureDepth,
                 LayerIndexStart = 0,
                 LayerIndexEnd = SlicerFile.LastLayerIndex,
                 LayerRangeSelection = Enumerations.LayerRangeSelection.All
-            };
-            operations.Add(isolateFeatures);
+            });
 
-            RoundupOperations(operations);
+            RoundupOperations(operations, elementTag + "_features");
 
-            SlicerFile.SaveAs(CompositionFileName(elementTag + "_features"), Progress);
-
-            operations = new();
-
-            OperationLayerImport importBaseElement2 = new(SlicerFile)
-            {
-                ImportType = ImportTypes.Replace
-            };
-            importBaseElement.AddFile(CompositionFileName(elementTag));
-            operations.Add(importBaseElement2);
-
-            RoundupOperations(operations);
+            ReplaceActiveFile(operations, elementTag);
 
             if (modelSkinDepth > 0)
             {
-                // remove skin from base model so when used for restoration corrosion bites into surface
-                OperationMorph dilateBaseElement = new(SlicerFile)
+                // extend model by skin depth
+                operations.Add(new OperationMorph(SlicerFile)
                 {
                     MorphOperation = OperationMorph.MorphOperations.Dilate,
                     Iterations = modelSkinDepth,
                     LayerIndexStart = 0,
                     LayerIndexEnd = SlicerFile.LastLayerIndex,
                     LayerRangeSelection = Enumerations.LayerRangeSelection.All
-                };
-                operations.Add(dilateBaseElement);
+                });
 
-                for (int i = 1; i > modelSkinDepth; i++)
+                // fade skin
+                for (uint i = 1; i <= modelSkinDepth + 1; i++)
                 {
+                    uint wallThickness = i;
+                    SubtractFromWalls(operations, skinBrightnessFalloff, wallThickness);
+                }
+
+                // restore original model voxels
+                MergeLayersFromFiles(operations, elementTag);
+            }
+
+            if (subsurfaceDepth > 0)
+            {
+                // fade subsurface (increases probability that corrosion will remove material pixels)
+                uint wallThickness = modelSkinDepth + subsurfaceDepth;
+                SubtractFromWalls(operations, brightnessFalloff, wallThickness);
+            }
+
+            if (corrosionDepth > 0)
+            {
+                // fade corrosion depth (increases probability that corrosion will remove material pixels)
+                uint wallThickness = modelSkinDepth + subsurfaceDepth + corrosionDepth;
+                SubtractFromWalls(operations, brightnessFalloff, wallThickness);
+            }
+
+            if (ApplyCorrosion.Value)
+            {
+
+                if (modelSkinDepth > 0)
+                {
+                    //corrode model skin (NB will be further corroded by subsurface and corrosion depth passes)
                     operations.Add(new OperationPixelArithmetic(SlicerFile)
                     {
-                        Operator = PixelArithmeticOperators.Subtract,
-                        ApplyMethod = PixelArithmeticApplyMethod.Model,
-                        UsePattern = false,
-                        Value = skinBrightness,
+                        Operator = PixelArithmeticOperators.Corrode,
+                        ApplyMethod = PixelArithmeticApplyMethod.ModelWalls,
+                        WallThickness = modelSkinDepth,
+                        NoiseThreshold = 0,
+                        NoiseMinOffset = FirstPassNoiseMinimumOffset.Value,
+                        NoiseMaxOffset = FirstPassNoiseMaximumOffset.Value
+                    });
+                }
+
+                if (subsurfaceDepth > 0)
+                {
+                    // corrode skin and subsurface (NB will be further corroded by corrosion depth pass)
+                    operations.Add(new OperationPixelArithmetic(SlicerFile)
+                    {
+                        Operator = PixelArithmeticOperators.Corrode,
+                        ApplyMethod = PixelArithmeticApplyMethod.ModelWalls,
+                        WallThickness = modelSkinDepth + subsurfaceDepth,
+                        NoiseThreshold = 0,
+                        NoiseMinOffset = SecondPassNoiseMinimumOffset.Value,
+                        NoiseMaxOffset = SecondPassNoiseMaximumOffset.Value
+                    });
+                }
+
+                if (corrosionDepth > 0)
+                {
+                    // corrode all corrosion features (skin, subsurface and corrosion depth)
+                    operations.Add(new OperationPixelArithmetic(SlicerFile)
+                    {
+                        Operator = PixelArithmeticOperators.Corrode,
+                        ApplyMethod = PixelArithmeticApplyMethod.ModelWalls,
+                        WallThickness = modelSkinDepth + subsurfaceDepth + corrosionDepth,
+                        NoiseThreshold = 0,
+                        NoiseMinOffset = ThirdPassNoiseMinimumOffset.Value,
+                        NoiseMaxOffset = ThirdPassNoiseMaximumOffset.Value
                     });
                 }
             }
 
-            Progress.Title = "Reinstating " + elementTag;
-            OperationLayerImport restoreBaseElement = new(SlicerFile)
-            {
-                ImportType = ImportTypes.MergeMax
-            };
-            restoreBaseElement.AddFile(CompositionFileName(elementTag));
-            operations.Add(restoreBaseElement);
+            MergeLayersFromFiles(operations, elementTag + "_features");
 
-            if (subsurfaceDepth > 0)
-            {
-                OperationPixelArithmetic setModelWallBrightness = new(SlicerFile)
-                {
-                    Operator = PixelArithmeticOperators.Subtract,
-                    ApplyMethod = PixelArithmeticApplyMethod.ModelWalls,
-                    UsePattern = false,
-                    Value = brightnessFalloff,
-                    WallThickness = modelSkinDepth + subsurfaceDepth
-                };
-                operations.Add(setModelWallBrightness);
-            }
+            Progress.Title = "Diffusing " + elementTag;
+            var outputTag = elementTag + "_diffused";
+            RoundupOperations(operations, outputTag);
 
-            if (corrosionDepth > 0)
-            {
-                OperationPixelArithmetic setModelWallBrightness2 = new(SlicerFile)
-                {
-                    Operator = PixelArithmeticOperators.Subtract,
-                    ApplyMethod = PixelArithmeticApplyMethod.ModelWalls,
-                    UsePattern = false,
-                    Value = brightnessFalloff,
-                    WallThickness = modelSkinDepth + subsurfaceDepth + corrosionDepth
-                };
-                operations.Add(setModelWallBrightness2);
-            }
+            return outputTag;
+        }
 
-            OperationPixelArithmetic corrode = new(SlicerFile)
+        private void SubtractFromWalls(List<Operation> operations, byte brightnessFalloff, uint wallThickness)
+        {
+            operations.Add(new OperationPixelArithmetic(SlicerFile)
             {
-                Operator = PixelArithmeticOperators.Corrode,
+                Operator = PixelArithmeticOperators.Subtract,
                 ApplyMethod = PixelArithmeticApplyMethod.ModelWalls,
-                WallThickness = modelSkinDepth,
-                NoiseThreshold = 0,
-                NoiseMinOffset = FirstPassNoiseMinimumOffset.Value,
-                NoiseMaxOffset = FirstPassNoiseMaximumOffset.Value
-            };
-            operations.Add(corrode);
+                UsePattern = false,
+                Value = brightnessFalloff,
+                WallThickness = wallThickness
+            });
+        }
 
-            if (subsurfaceDepth > 0)
-            {
-                OperationPixelArithmetic corrode2 = new(SlicerFile)
-                {
-                    Operator = PixelArithmeticOperators.Corrode,
-                    ApplyMethod = PixelArithmeticApplyMethod.ModelWalls,
-                    WallThickness = modelSkinDepth + subsurfaceDepth,
-                    NoiseThreshold = 0,
-                    NoiseMinOffset = SecondPassNoiseMinimumOffset.Value,
-                    NoiseMaxOffset = SecondPassNoiseMaximumOffset.Value
-                };
-                operations.Add(corrode2);
-            }
-
-            if (corrosionDepth > 0)
-            {
-                OperationPixelArithmetic corrode3 = new(SlicerFile)
-                {
-                    Operator = PixelArithmeticOperators.Corrode,
-                    ApplyMethod = PixelArithmeticApplyMethod.ModelWalls,
-                    WallThickness = modelSkinDepth + subsurfaceDepth + corrosionDepth,
-                    NoiseThreshold = 0,
-                    NoiseMinOffset = ThirdPassNoiseMinimumOffset.Value,
-                    NoiseMaxOffset = ThirdPassNoiseMaximumOffset.Value
-                };
-                operations.Add(corrode3);
-            }
-
+        private void MergeLayersFromFiles(List<Operation> operations, params string[] elementTags)
+        {
             OperationLayerImport restoreElementDetailFeatures = new(SlicerFile)
             {
                 ImportType = ImportTypes.MergeMax
             };
-            restoreElementDetailFeatures.AddFile(CompositionFileName(elementTag + "_features"));
+
+            foreach (var elementTag in elementTags)
+            {
+                restoreElementDetailFeatures.AddFile(CompositionFileName(elementTag));
+            }
             operations.Add(restoreElementDetailFeatures);
+        }
 
-            Progress.Title = "Diffusing " + elementTag;
-            RoundupOperations(operations);
+        private void ReplaceActiveFile(List<Operation> operations, string elementTag)
+        {
+            OperationLayerImport importBaseElement = new(SlicerFile)
+            {
+                ImportType = ImportTypes.Replace
+            };
+            importBaseElement.AddFile(CompositionFileName(elementTag));
 
-            var outputTag = elementTag + "_diffused";
-            SlicerFile.SaveAs(CompositionFileName(outputTag), Progress);
-
-            return outputTag;
+            operations.Add(importBaseElement);
         }
 
         private string CreateContrasted(string elementTag, string diffusedElementTag, params string[] cutters)
@@ -563,11 +576,8 @@ namespace UVtools.ScriptSample
             }
             operations.Add(subtractElements);
 
-            RoundupOperations(operations);
-
             var intermediateTag = diffusedElementTag + "_contrasted_intermediate";
-
-            SlicerFile.SaveAs(CompositionFileName(intermediateTag), Progress);
+            RoundupOperations(operations, intermediateTag);
 
             // cutters and original (to be restored)
             operations = new();
@@ -580,15 +590,7 @@ namespace UVtools.ScriptSample
             };
             operations.Add(clearSlices);
 
-            OperationLayerImport importBaseElement = new(SlicerFile)
-            {
-                ImportType = ImportTypes.MergeMax
-            };
-            foreach (var cutter in cutters)
-            {
-                importBaseElement.AddFile(CompositionFileName(cutter));
-            }
-            operations.Add(importBaseElement);
+            MergeLayersFromFiles(operations, cutters);
 
             OperationLayerImport importElement = new(SlicerFile)
             {
@@ -597,23 +599,16 @@ namespace UVtools.ScriptSample
             importElement.AddFile(CompositionFileName(elementTag));
             operations.Add(importElement);
 
-            OperationLayerImport restoreElements = new(SlicerFile)
-            {
-                ImportType = ImportTypes.MergeMax
-            };
-            restoreElements.AddFile(CompositionFileName(intermediateTag));
-            operations.Add(restoreElements);
-
-            RoundupOperations(operations);
+            MergeLayersFromFiles(operations, intermediateTag);
 
             var newTag = diffusedElementTag + "_contrasted";
 
-            SlicerFile.SaveAs(CompositionFileName(newTag), Progress);
-
+            RoundupOperations(operations, newTag);
+            
             return newTag;
         }
 
-        private void RoundupOperations(List<Operation> operations)
+        private void RoundupOperations(List<Operation> operations, string saveIntermediateState = null)
         {
             foreach (var operation in operations)
             {
@@ -621,20 +616,22 @@ namespace UVtools.ScriptSample
                 if (!operation.CanValidate()) continue;
                 operation.Execute(Progress);
             }
+
+            if (saveIntermediateState != null)
+            {
+                SlicerFile.SaveAs(CompositionFileName(saveIntermediateState), Progress);
+            }
+
+            operations.Clear();
         }
 
         private string CreateCutter(string elementTag, uint dilationPixels)
         {
             List<Operation> operations = new();
 
-            OperationLayerImport importFlatDetailElement = new(SlicerFile)
-            {
-                ImportType = ImportTypes.Replace
-            };
-            importFlatDetailElement.AddFile(CompositionFileName(elementTag));
-            operations.Add(importFlatDetailElement);
+            ReplaceActiveFile(operations, elementTag);
 
-            OperationMorph dilateFlatDetail = new(SlicerFile)
+             OperationMorph dilateFlatDetail = new(SlicerFile)
             {
                 MorphOperation = OperationMorph.MorphOperations.Dilate,
                 Iterations = dilationPixels,
@@ -645,11 +642,8 @@ namespace UVtools.ScriptSample
             };
             operations.Add(dilateFlatDetail);
 
-            RoundupOperations(operations);
-
             var newTag = elementTag + "_dilated";
-
-            SlicerFile.SaveAs(CompositionFileName(newTag), Progress);
+            RoundupOperations(operations, newTag);
 
             return newTag;
         }
